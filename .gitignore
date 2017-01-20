@@ -1,2 +1,3 @@
 host_lists/*
 *.pyc
+*.log
