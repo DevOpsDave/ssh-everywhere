@@ -37,7 +37,11 @@ def cmd_line()
     end
 
     opts.on('-t', "--aws_tag [TAG]", "The name of the aws tag to use for looking up hosts.") do |s|
-      options[:aws_tag] = s
+      options[:aws_tag] = s.split(',')
+    end
+
+    opts.on('-d', '--dry-run', 'Will print debug info and quit before doing anything.') do |s|
+      options[:dry_run] = s
     end
 
   end
@@ -57,7 +61,9 @@ def get_hosts(opts)
   if opts[:host_list]
     host_array = IO.readlines(opts[:host_list]).map(&:chomp)
   elsif opts[:aws_tag]
-    command_output = `aws ec2 describe-instances --region #{opts[:aws_region]} --filter "Name=tag-value,Values=#{opts[:aws_tag]}" --query "Reservations[*].Instances[*].[Tags[?Key=='Name']]" --output text | sort | awk {' print $2 '}`
+    filters = ""
+    opts[:aws_tag].each { |value| filters += "Name=tag-value,Values=#{value} "}
+    command_output = `aws ec2 describe-instances --region #{opts[:aws_region]} --filter #{filters} --query "Reservations[*].Instances[*].[Tags[?Key=='Name']]" --output text | sort | awk {' print $2 '}`
     host_array = command_output.split()
   elsif opts[:aws_group]
     command_output = `aws ec2 describe-instances --region #{opts[:aws_region]} --filter "Name=group-name,Values=#{opts[:aws_group]}" --query "Reservations[*].Instances[*].[Tags[?Key=='Name']]" --output text | sort | awk {' print $2 '}`
@@ -76,6 +82,8 @@ def starttmux(host_ary, opts)
   ittr_hosts = host_ary.each_slice(max_pane).to_a
   ittr_hosts.each do |mem_ary|
     system("#{cmd} new-session -d -s #{session}")
+    main_pane = %x(#{cmd} list-panes | awk {'print $1'} | sed s/://)
+    #print "main_pane is #{main_pane}"
     mem_ary.each do |host|
       puts "Adding #{host}"
       run="#{cmd} split-window -v -t #{session} \"ssh -l #{user} #{host}\""
@@ -84,13 +92,19 @@ def starttmux(host_ary, opts)
       system(run)
     end
     system("#{cmd} set-window-option synchronize-panes on")
-    system("#{cmd} kill-pane -t 0")
+    system("#{cmd} kill-pane -t #{main_pane}")
     system("#{cmd} attach -t #{session}")
   end
 end
 
 def main(options)
   host_ary = get_hosts(options)
+
+  if options[:dry_run]
+    print host_ary
+    exit(0)
+  end
+
   if host_ary.empty?
     print "No hosts."
     exit(1)
