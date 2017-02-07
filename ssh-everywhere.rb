@@ -36,8 +36,9 @@ def cmd_line()
       options[:aws_group] = s
     end
 
+    options[:aws_tag] = []
     opts.on('-t', "--aws_tag [TAG]", "The name of the aws tag to use for looking up hosts.") do |s|
-      options[:aws_tag] = s.split(',')
+      options[:aws_tag].push(s)
     end
 
     opts.on('-d', '--dry-run', 'Will print debug info and quit before doing anything.') do |s|
@@ -63,7 +64,11 @@ def get_hosts(opts)
   elsif opts[:aws_tag]
     filters = ""
     opts[:aws_tag].each { |value| filters += "Name=tag-value,Values=#{value} "}
-    command_output = `aws ec2 describe-instances --region #{opts[:aws_region]} --filter #{filters} --query "Reservations[*].Instances[*].[Tags[?Key=='Name']]" --output text | sort | awk {' print $2 '}`
+    command = %Q/aws ec2 describe-instances --region #{opts[:aws_region]} --filter #{filters} --query "Reservations[*].Instances[*].[Tags[?Key=='Name']]" --output text | sort | awk {' print $2 '}/
+    if opts[:dry_run]
+      print "AWS CLI Command => #{command}\n"
+    end
+    command_output = %x(#{command})
     host_array = command_output.split()
   elsif opts[:aws_group]
     command_output = `aws ec2 describe-instances --region #{opts[:aws_region]} --filter "Name=group-name,Values=#{opts[:aws_group]}" --query "Reservations[*].Instances[*].[Tags[?Key=='Name']]" --output text | sort | awk {' print $2 '}`
