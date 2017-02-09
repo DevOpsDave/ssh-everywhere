@@ -61,7 +61,7 @@ def get_hosts(opts)
   host_array = []
   if opts[:host_list]
     host_array = IO.readlines(opts[:host_list]).map(&:chomp)
-  elsif opts[:aws_tag]
+  elsif not opts[:aws_tag].empty?
     filters = ""
     opts[:aws_tag].each { |value| filters += "Name=tag-value,Values=#{value} "}
     command = %Q/aws ec2 describe-instances --region #{opts[:aws_region]} --filter #{filters} --query "Reservations[*].Instances[*].[Tags[?Key=='Name']]" --output text | sort | awk {' print $2 '}/
