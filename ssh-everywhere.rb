@@ -105,14 +105,14 @@ end
 def main(options)
   host_ary = get_hosts(options)
 
-  if options[:dry_run]
-    print host_ary
-    exit(0)
-  end
-
   if host_ary.empty?
     print "No hosts."
     exit(1)
+  end
+
+  if options[:dry_run]
+    puts host_ary.join("\n")
+    exit(0)
   end
 
   starttmux(host_ary, options)
