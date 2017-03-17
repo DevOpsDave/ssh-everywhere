@@ -1,7 +1,7 @@
 #!/usr/bin/ruby
 
 require 'optparse'
-
+require 'json'
 
 def cmd_line()
   options = {}
@@ -14,7 +14,8 @@ def cmd_line()
     end
 
     opts.on("-l","--host_list [STRING]","path to host list.") do |s|
-      options[:host_list] = s
+      host_list = File.open(s).readlines.map { |line| line.strip }
+      options[:host_list] = host_list
     end
 
     options[:user] = `echo $USER`.chomp
@@ -27,13 +28,8 @@ def cmd_line()
       options[:max_panes] = s
     end
 
-    options[:aws_region] = 'us-east-1'
     opts.on('-r',"--aws_region [REGION]", "The region to use when looking up hosts.") do |s|
       options[:aws_region] = s
-    end
-
-    opts.on('-g', "--aws_group [SEC GROUP]", "The name of the sec grp to use when looking up hosts.") do |s|
-      options[:aws_group] = s
     end
 
     options[:aws_tag] = []
@@ -41,10 +37,17 @@ def cmd_line()
       options[:aws_tag].push(s)
     end
 
-    opts.on('-d', '--dry-run', 'Will print debug info and quit before doing anything.') do |s|
-      options[:dry_run] = s
+    opts.on('-d', '--debug', 'Will print debug info.') do |s|
+      options[:debug] = s
     end
 
+    opts.on('--list-hosts', "Outputs list of hosts and then exits.") do |s|
+      options[:list_hosts] = s
+    end
+
+    opts.on('--get-tags', 'Output the tags.') do |s|
+      options[:get_tags] = s
+    end
   end
 
   optparse.parse!
@@ -57,25 +60,45 @@ def cmd_line()
   return options
 end
 
-def get_hosts(opts)
-  host_array = []
-  if opts[:host_list]
-    host_array = IO.readlines(opts[:host_list]).map(&:chomp)
-  elsif not opts[:aws_tag].empty?
-    filters = ""
-    opts[:aws_tag].each { |value| filters += "Name=tag-value,Values=#{value} "}
-    command = %Q/aws ec2 describe-instances --region #{opts[:aws_region]} --filter #{filters} --query "Reservations[*].Instances[*].[Tags[?Key=='Name']]" --output text | sort | awk {' print $2 '}/
-    if opts[:dry_run]
-      print "AWS CLI Command => #{command}\n"
-    end
-    command_output = %x(#{command})
-    host_array = command_output.split()
-  elsif opts[:aws_group]
-    command_output = `aws ec2 describe-instances --region #{opts[:aws_region]} --filter "Name=group-name,Values=#{opts[:aws_group]}" --query "Reservations[*].Instances[*].[Tags[?Key=='Name']]" --output text | sort | awk {' print $2 '}`
-    host_array = command_output.split()
+class AwsHosts
+
+  attr_reader :instances
+
+  def initialize(debug=nil)
+    @instances = []
+    @debug = debug
   end
 
-  host_array
+  def get_hosts_by_tag_value(tag_array, region=nil)
+    query_str = %/--query "Reservations[].Instances[].{ n1: Tags[?Key == 'Name'].Value, t1: Tags } | [*].{ name: n1[0], tags: t1 }"/
+    filters = tag_array.collect { |x| "Name=tag-value,Values=#{x}" }.join(' ')
+    command = ["aws ec2 describe-instances"]
+    unless region.nil?
+      command.push("--region #{region}")
+    end
+    command.push("--filter #{filters}")
+    command.push("#{query_str}")
+
+    if @debug
+      puts "AWS command used => #{command.join('')}\n\n"
+    end
+
+    output = %x(#{command.join(' ')})
+    @instances = JSON.parse(output)
+  end
+
+  def list_hosts()
+    @instances.map { |host| host['name'] }
+  end
+
+  def print_host_list()
+    puts self.list_hosts().join("\n")
+  end
+
+  def print_instances()
+    puts JSON.pretty_generate(@instances)
+  end
+
 end
 
 def starttmux(host_ary, opts)
@@ -103,22 +126,47 @@ def starttmux(host_ary, opts)
 end
 
 def main(options)
-  host_ary = get_hosts(options)
+
+  if options[:debug]
+    puts "Options => #{options}\n\n"
+  end
+
+  ah_obj = AwsHosts.new(options[:debug])
+
+  host_ary = []
+  if options[:host_list]
+    host_ary = options[:host_list]
+  elsif not options[:aws_tag].empty?
+    ah_obj.get_hosts_by_tag_value(options[:aws_tag], options[:aws_region])
+    host_ary = ah_obj.list_hosts
+  end
 
   if host_ary.empty?
     print "No hosts."
     exit(1)
   end
 
-  if options[:dry_run]
-    puts host_ary.join("\n")
+  if options[:debug]
+    puts "host_ary => #{host_ary}\n\n"
+  end
+
+  if options[:list_hosts]
+    if not options[:aws_tag].empty?
+      puts "List hosts from aws_tag." unless options[:debug].nil?
+      print ah_obj.print_host_list
+    elsif options[:host_list]
+      puts "List hosts from host list." unless options[:debug].nil?
+      puts host_ary
+    end
+    exit(0)
+  elsif options[:get_tags]
+    puts "List the host data." unless options[:debug].nil?
+    print ah_obj.print_instances
     exit(0)
   end
 
   starttmux(host_ary, options)
 end
-
-
 
 if __FILE__ == $0
 
