@@ -76,7 +76,7 @@ class AwsHosts
     unless region.nil?
       command.push("--region #{region}")
     end
-    command.push("--filter #{filters}")
+    command.push("--filter #{filters} Name=instance-state-name,Values=running")
     command.push("#{query_str}")
 
     if @debug
