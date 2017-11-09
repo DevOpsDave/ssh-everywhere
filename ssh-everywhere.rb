@@ -70,14 +70,14 @@ class AwsHosts
   end
 
   def get_hosts_by_tag_value(tag_array, region=nil)
-    query_str = %/--query "Reservations[].Instances[].{ n1: Tags[?Key == 'Name'].Value, t1: Tags } | [*].{ name: n1[0], tags: t1 }"/
+    query_str = %/--query "Reservations[].Instances[].{ n1: Tags[?Key == 'Name'].Value, p1: PrivateIpAddress, t1: Tags } | [*].{ name: n1[0], privateIp: p1, tags: t1 }"/
     filters = tag_array.collect { |x| "Name=tag-value,Values=#{x}" }.join(' ')
     command = ["aws ec2 describe-instances"]
     unless region.nil?
-      command.push("--region #{region}")
+      command.push(" --region #{region}")
     end
-    command.push("--filter #{filters} Name=instance-state-name,Values=running")
-    command.push("#{query_str}")
+    command.push(" --filter #{filters} Name=instance-state-name,Values=running")
+    command.push(" #{query_str}")
 
     if @debug
       puts "AWS command used => #{command.join('')}\n\n"
@@ -89,6 +89,10 @@ class AwsHosts
 
   def list_hosts()
     @instances.map { |host| host['name'] }
+  end
+
+  def list_host_private_ips()
+    @instances.map { |host| host['privateIp'] }
   end
 
   def print_host_list()
@@ -138,7 +142,7 @@ def main(options)
     host_ary = options[:host_list]
   elsif not options[:aws_tag].empty?
     ah_obj.get_hosts_by_tag_value(options[:aws_tag], options[:aws_region])
-    host_ary = ah_obj.list_hosts
+    host_ary = ah_obj.list_host_private_ips
   end
 
   if host_ary.empty?
